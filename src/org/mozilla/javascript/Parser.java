@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.Stack;
+import java.util.LinkedList;
 
 /**
  * This class implements the JavaScript parser.<p>
@@ -40,6 +42,33 @@ import java.util.HashSet;
  */
 public class Parser
 {
+	private TokenLocation lastLocation;
+	private Stack<TokenLocation> tokenStack;
+	private Stack<Integer> parserStack; 
+
+	private void pushState() 
+	{
+		parserStack.push(new Integer(tokenStack.size()));
+	}
+	
+	private void popState(AstNode node)
+	{
+		int lastBeg = parserStack.pop().intValue();
+		int lastEnd = tokenStack.size();
+		
+		if(node != null) {
+			List<TokenLocation> ret = new LinkedList<TokenLocation>();
+			for(int i = lastBeg; i < lastEnd; i ++)
+				ret.add(0, tokenStack.pop());
+			node.setTokenList(ret);
+		}
+		else
+		{
+			for(int i = lastBeg; i < lastEnd; i ++)
+				tokenStack.pop();
+		}
+	}
+
     /**
      * Maximum number of allowed function or constructor arguments,
      * to follow SpiderMonkey.
@@ -113,6 +142,8 @@ public class Parser
         if (errorReporter instanceof IdeErrorReporter) {
             errorCollector = (IdeErrorReporter)errorReporter;
         }
+        this.tokenStack = new Stack<TokenLocation>();
+        this.parserStack = new Stack<Integer>();
     }
 
     // Add a strict warning on the last matched token.
@@ -326,7 +357,11 @@ public class Parser
         }
 
         int lineno = ts.getLineno();
+        int column = ts.getTokenColumn();
         int tt = ts.getToken();
+
+		lastLocation = new TokenLocation(tt, lineno, column);
+			
         boolean sawEOL = false;
 
         // process comments and whitespace
@@ -359,6 +394,8 @@ public class Parser
     }
 
     private void consumeToken() {
+	    if(lastLocation != null) tokenStack.push(lastLocation);
+	    lastLocation = null;
         currentFlaggedToken = Token.EOF;
     }
 
@@ -552,6 +589,8 @@ public class Parser
         // TODO: eval code should get strict mode from invoking code
         inUseStrictDirective = false;
 
+        pushState();
+
         try {
             for (;;) {
                 int tt = peekToken();
@@ -561,16 +600,17 @@ public class Parser
 
                 AstNode n;
                 if (tt == Token.FUNCTION) {
-                    consumeToken();
                     try {
                         n = function(calledByCompileFunction
                                      ? FunctionNode.FUNCTION_EXPRESSION
-                                     : FunctionNode.FUNCTION_STATEMENT);
+                                     : FunctionNode.FUNCTION_STATEMENT, true);
+                        popState(n);
                     } catch (ParserException e) {
                         break;
                     }
                 } else {
                     n = statement();
+                    popState(n);
                     if (inDirectivePrologue) {
                         String directive = getDirective(n);
                         if (directive == null) {
@@ -771,9 +811,13 @@ public class Parser
         }
     }
 
-    private FunctionNode function(int type)
+    private FunctionNode function(int type, boolean consume)
         throws IOException
     {
+	    pushState();
+
+		if(consume) consumeToken();
+
         int syntheticType = type;
         int baseLineno = ts.lineno;  // line number where source starts
         int functionSourceStart = ts.tokenBeg;  // start of "function" kwd
@@ -1020,6 +1064,7 @@ public class Parser
     private AstNode statement()
         throws IOException
     {
+	    //Do not need to do that
         int pos = ts.tokenBeg;
         try {
             AstNode pn = statementHelper();
@@ -1056,9 +1101,11 @@ public class Parser
         return new EmptyStatement(pos, ts.tokenBeg - pos);
     }
 
-    private AstNode statementHelper()
+    private AstNode statementHelper()  
         throws IOException
     {
+	    pushState();
+
         // If the statement is set, then it's been told its label by now.
         if (currentLabel != null && currentLabel.getStatement() != null)
             currentLabel = null;
@@ -1068,50 +1115,69 @@ public class Parser
 
         switch (tt) {
           case Token.IF:
-              return ifStatement();
+              pn = ifStatement();
+              popState(pn);
+              return pn;
 
           case Token.SWITCH:
-              return switchStatement();
+              pn = switchStatement();
+              popState(pn);
+              return pn;
 
           case Token.WHILE:
-              return whileLoop();
+              pn = whileLoop();
+              popState(pn);
+              return pn;
 
           case Token.DO:
-              return doLoop();
+              pn = doLoop();
+              popState(pn);
+              return pn;
 
           case Token.FOR:
-              return forLoop();
+              pn = forLoop();;
+              popState(pn);
+              return pn;
 
           case Token.TRY:
-              return tryStatement();
+              pn = tryStatement();
+              popState(pn);
+              return pn;
 
           case Token.THROW:
               pn = throwStatement();
+              popState(pn);
               break;
 
           case Token.BREAK:
               pn = breakStatement();
+              popState(pn);
               break;
 
           case Token.CONTINUE:
               pn = continueStatement();
+              popState(pn);
               break;
 
           case Token.WITH:
               if (this.inUseStrictDirective) {
                   reportError("msg.no.with.strict");
               }
-              return withStatement();
+              pn = withStatement();
+              popState(pn);
+              return pn;
 
           case Token.CONST:
           case Token.VAR:
-              consumeToken();
               int lineno = ts.lineno;
               pn = variables(currentToken, ts.tokenBeg, true);
+              popState(pn);
               pn.setLineno(lineno);
               break;
 
           case Token.LET:
+
+			  //TODO: here 2
               pn = letStatement();
               if (pn instanceof VariableDeclaration
                   && peekToken() == Token.SEMI)
@@ -1145,8 +1211,9 @@ public class Parser
               return pn;
 
           case Token.FUNCTION:
-              consumeToken();
-              return function(FunctionNode.FUNCTION_EXPRESSION_STATEMENT);
+              pn = function(FunctionNode.FUNCTION_EXPRESSION_STATEMENT, true);
+              popState(pn);
+              return pn;
 
           case Token.DEFAULT :
               pn = defaultXmlNamespace();
@@ -1951,9 +2018,13 @@ public class Parser
      * token in the first variable declaration.
      * @return the parsed variable list
      */
-    private VariableDeclaration variables(int declType, int pos, boolean isStatement)
+    private VariableDeclaration variables(int declType, int pos, boolean isStatement, boolean consume)
         throws IOException
     {
+	    pushState();
+
+		if(consume) consumeToken();
+
         int end;
         VariableDeclaration pn = new VariableDeclaration(pos);
         pn.setType(declType);
@@ -1980,8 +2051,10 @@ public class Parser
                 markDestructuring(destructuring);
             } else {
                 // Simple variable name
+                pushState();
                 mustMatchToken(Token.NAME, "msg.bad.var");
                 name = createNameNode();
+                popState(name);
                 name.setLineno(ts.getLineno());
                 if (inUseStrictDirective) {
                     String id = ts.getString();
@@ -2023,6 +2096,7 @@ public class Parser
         }
         pn.setLength(end - pos);
         pn.setIsStatement(isStatement);
+        popState(pn);
         return pn;
     }
 
@@ -2892,7 +2966,9 @@ public class Parser
         try {
             inDestructuringAssignment = true;
             return primaryExpr();
-        } finally {
+        } catch (ParserException e) {
+	        popState(null);
+		} finally {
             inDestructuringAssignment = false;
         }
     }

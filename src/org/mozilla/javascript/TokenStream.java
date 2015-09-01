@@ -1540,6 +1540,12 @@ class TokenStream
         return tokenBeg;
     }
 
+	/**
+	 * Return the column offest of the last scanned token.
+	 */
+    public int getTokenColumn() {
+	    return tokenBeg - lineStart;
+	}
     /**
      * Return the absolute source end-offset of the last scanned token.
      */

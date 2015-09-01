@@ -6,6 +6,8 @@
 
 package org.mozilla.javascript.ast;
 
+import org.mozilla.javascript.TokenLocation;
+
 import org.mozilla.javascript.Kit;
 import org.mozilla.javascript.Node;
 import org.mozilla.javascript.Token;
@@ -66,6 +68,10 @@ public abstract class AstNode extends Node implements Comparable<AstNode> {
     protected int position = -1;
     protected int length = 1;
     protected AstNode parent;
+
+	private int column = -1;
+
+	private List<TokenLocation> tokenList;
 
     private static Map<Integer,String> operatorNames =
             new HashMap<Integer,String>();
@@ -590,6 +596,25 @@ public abstract class AstNode extends Node implements Comparable<AstNode> {
         return -1;
     }
 
+	public int getColumn() {
+		if(column != -1)
+			return column;
+		else if(parent != null)
+			return parent.getColumn();
+		return -1;
+	}
+
+	public void setColumn(int col){
+		column = col;
+	}
+
+	public List<TokenLocation> getTokenList() {
+		return tokenList;
+	}
+
+	public void setTokenList(List<TokenLocation> list) {
+		tokenList = list;
+	}
     /**
      * Returns a debugging representation of the parse tree
      * starting at this node.
