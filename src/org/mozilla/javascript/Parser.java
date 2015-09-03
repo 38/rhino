@@ -81,15 +81,24 @@ public class Parser
 		if(node != null) {
 			List<TokenLocation> ret = new LinkedList<TokenLocation>();
 			for(int i = lastBeg; i < lastEnd; i ++)
-				ret.add(0, tokenStack.pop());
+				ret.add(0, tokenStack.get(i));
 			if(node.getTokenList() == null) node.setTokenList(ret);
             else if(ret.size() > 0) codeBug();
 		}
-		else
-		{
-			for(int i = lastBeg; i < lastEnd; i ++)
-				tokenStack.pop();
-		}
+		for(int i = lastBeg; i < lastEnd; i ++)
+			tokenStack.pop();
+	}
+
+	// This function add all the token in the token stack frame to look ahead buffer, useful when the temp node is going to be disposed
+	private void popStateAhead() {
+		int lastBeg = parserStack.pop().intValue();
+		int lastEnd = tokenStack.size();
+
+		for(int i = lastBeg; i < lastEnd; i ++)
+			lookAheadBuffer.add(tokenStack.get(i));
+
+		for(int i = lastBeg; i < lastEnd; i ++)
+			tokenStack.pop();
 	}
 
     /**
@@ -2208,6 +2217,7 @@ public class Parser
     private AstNode let(boolean isStatement, int pos)
         throws IOException
     {
+	    pushState();
         LetNode pn = new LetNode(pos);
         pn.setLineno(ts.lineno);
         if (mustMatchToken(Token.LP, "msg.no.paren.after.let", false))
@@ -2693,14 +2703,14 @@ public class Parser
               // Fall thru to the default handling of RELOP
 
           default:
-              AstNode pn = memberExpr(false);
+              AstNode pn = memberExpr(true);
               // Don't look across a newline boundary for a postfix incop.
               tt = peekTokenOrEOL();
               if (!(tt == Token.INC || tt == Token.DEC)) {
                   popState(pn);
                   return pn;
               }
-              consumeToken(true);
+              consumeToken(false);
               UnaryExpression uexpr =
                       new UnaryExpression(tt, ts.tokenBeg, pn, true);
               uexpr.setLineno(line);
@@ -3276,9 +3286,11 @@ public class Parser
           case Token.THIS:
           case Token.FALSE:
           case Token.TRUE:
-              consumeToken(true);
+              pushState();
+              consumeToken(false);
               pos = ts.tokenBeg; end = ts.tokenEnd;
               result = new KeywordLiteral(pos, end - pos, tt);
+              popState(result);
               break;
 
           case Token.RP:
@@ -3362,18 +3374,19 @@ public class Parser
     }
 
     private AstNode name(int ttFlagged, int tt) throws IOException {
-        pushState(1);
         String nameString = ts.getString();
         int namePos = ts.tokenBeg, nameLineno = ts.lineno;
         if (0 != (ttFlagged & TI_CHECK_LABEL) && peekToken() == Token.COLON) {
             // Do not consume colon.  It is used as an unwind indicator
             // to return to statementHelper.
+            pushState();
             Label label = new Label(namePos, ts.tokenEnd - namePos);
             label.setName(nameString);
             label.setLineno(ts.lineno);
             popState(label);
             return label;
         }
+        pushState(1);
         // Not a label.  Unfortunately peeking the next token to check for
         // a colon has biffed ts.tokenBeg, ts.tokenEnd.  We store the name's
         // bounds in instance vars and createNameNode uses them.
@@ -3430,7 +3443,9 @@ public class Parser
                 break;
             } else if (tt == Token.FOR && !after_lb_or_comma
                        && elements.size() == 1) {
-                return arrayComprehension(elements.get(0), pos);
+	            popStateAhead();
+                AstNode n = arrayComprehension(elements.get(0), pos);
+                return n;
             } else if (tt == Token.EOF) {
                 reportError("msg.no.bracket.arg");
                 break;
@@ -3507,7 +3522,7 @@ public class Parser
                     reportError("msg.no.paren.for");
                 }
             }
-            if (mustMatchToken(Token.LP, "msg.no.paren.for", true)) {
+            if (mustMatchToken(Token.LP, "msg.no.paren.for", false)) {
                 lp = ts.tokenBeg - pos;
             }
 
@@ -3702,17 +3717,16 @@ public class Parser
                     warnTrailingComma(pos, elems, afterComma);
                 break commaLoop;
             } else {
-                pushState();
+	            peekToken();
+	            String namestr = ts.getString();
                 AstNode pname = objliteralProperty();
                 if (pname == null) {
                     propertyName = null;
                     popState(null);
                     reportError("msg.bad.prop");
                 } else {
-                    propertyName = ts.getString();
+                    propertyName = namestr; 
                     int ppos = ts.tokenBeg;
-                    consumeToken(false);
-                    popState(pname);
 
                     // This code path needs to handle both destructuring object
                     // literals like:
@@ -3743,15 +3757,12 @@ public class Parser
                             for(TokenLocation token : pname.getTokenList()) {
                                 tokenStack.push(token);
                             }
-                            pushState();
                             pname = objliteralProperty();
                             if (pname == null) {
                                 popState(null);
                                 popState(null);
                                 reportError("msg.bad.prop");
                             }
-                            consumeToken(false);
-                            popState(pname);
                         }
                         if (pname == null) {
                             propertyName = null;
@@ -3821,22 +3832,28 @@ public class Parser
         int tt = peekToken();
         switch(tt) {
           case Token.NAME:
+	          consumeToken(true);
               pname = createNameNode();
               break;
 
           case Token.STRING:
+	          consumeToken(true);
               pname = createStringLiteral();
               break;
 
           case Token.NUMBER:
+              pushState();
+	          consumeToken(false);
               pname = new NumberLiteral(
                       ts.tokenBeg, ts.getString(), ts.getNumber());
+              popState(pname);
               break;
 
           default:
               if (compilerEnv.isReservedKeywordAsIdentifier()
                       && TokenStream.isKeyword(ts.getString())) {
                   // convert keyword to property name, e.g. ({if: 1})
+                  consumeToken(true);
                   pname = createNameNode();
                   break;
               }
