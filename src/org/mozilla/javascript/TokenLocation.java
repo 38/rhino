@@ -7,10 +7,15 @@ public class TokenLocation {
 	int type;
 	int lineno;
 	int column;
+	String text;
 	public TokenLocation(int t, int l, int c)
 	{
 		type = t;
 		lineno = l;
 		column = c;
+	}
+	public String toString() 
+	{
+		return "<" + type + "@" + lineno + ":" + column + ">";
 	}
 }

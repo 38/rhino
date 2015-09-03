@@ -499,6 +499,7 @@ public class Parser
         if (matchToken(toMatch, lookAhead)) {
             return true;
         }
+	    popState(null);
         reportError(msgId, pos, len);
         return false;
     }
@@ -2368,7 +2369,9 @@ public class Parser
         pushState();
         int tt = peekToken();
         if (tt == Token.YIELD) {
-            return returnOrYield(tt, true);
+            AstNode ret = returnOrYield(tt, true);
+            popState(ret);
+            return ret;
         }
         AstNode pn = condExpr();
         tt = peekToken();
