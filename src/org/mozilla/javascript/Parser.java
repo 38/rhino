@@ -884,6 +884,7 @@ public class Parser
                     name = null;
                     memberExprNode = memberExprTail(false, memberExprHead);
                 }
+				else popState(null);
                 mustMatchToken(Token.LP, "msg.no.paren.parms", false);
             }
         } else if (matchToken(Token.LP, false)) {
@@ -1374,12 +1375,15 @@ public class Parser
                         break switchLoop;
 
                     case Token.CASE:
+                        consumeToken(false);
                         caseExpression = expr();
                         mustMatchToken(Token.COLON, "msg.no.colon.case", false);
                         break;
 
                     case Token.DEFAULT:
+                        consumeToken(false);
                         if (hasDefault) {
+	                        popState(null);
                             reportError("msg.double.switch.default");
                         }
                         hasDefault = true;
@@ -1388,6 +1392,8 @@ public class Parser
                         break;
 
                     default:
+                        consumeToken(false);
+                        popState(null);
                         reportError("msg.bad.switch");
                         break switchLoop;
                 }
@@ -1678,7 +1684,7 @@ public class Parser
                 pushState();
                 Block catchBlock = null;
                 try {
-                    mustMatchToken(Token.LC, "msg.no.brace.catchblock", true);
+                    mustMatchToken(Token.LC, "msg.no.brace.catchblock", false);
                     catchBlock = (Block)statements();
                 } finally {
                     popState(catchBlock);
@@ -2565,9 +2571,9 @@ public class Parser
                 popState(pn);
                 continue;
             }
+			popState(pn);
             break;
         }
-        popState(pn);
         return pn;
     }
 
@@ -2695,9 +2701,10 @@ public class Parser
           case Token.LT:
               // XML stream encountered in expression.
               if (compilerEnv.isXmlAvailable()) {
-                  consumeToken(false);
-                  node = memberExprTail(true, xmlInitializer());
-                  popState(node);
+                  consumeToken(true);
+                  AstNode init = xmlInitializer();
+                  popState(init);
+                  node = memberExprTail(true, init);
                   return node;
               }
               // Fall thru to the default handling of RELOP
@@ -2851,8 +2858,8 @@ public class Parser
             pn = nx;
         }
         pn.setLineno(lineno);
+        popState(pn);
         AstNode tail = memberExprTail(allowCallSyntax, pn);
-        popState(tail);
         return tail;
     }
 
@@ -3061,8 +3068,7 @@ public class Parser
     private AstNode attributeAccess()
         throws IOException
     {
-        pushState();
-
+	    // Just a branches for different nodes, do not push
         int tt = nextToken(true), atPos = ts.tokenBeg;
 
         AstNode ret = null;
@@ -3089,7 +3095,6 @@ public class Parser
               popState(null);
               return makeErrorNode();
         }
-        popState(ret);
         return ret;
     }
 
