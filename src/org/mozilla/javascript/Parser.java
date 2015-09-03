@@ -1659,7 +1659,12 @@ public class Parser
                 if (mustMatchToken(Token.LP, "msg.no.paren.catch", false))
                     lp = ts.tokenBeg;
 
-                mustMatchToken(Token.NAME, "msg.bad.catchcond", true);
+                //mustMatchToken(Token.NAME, "msg.bad.catchcond", true);
+                if(!matchToken(Token.NAME, true)) {
+	                popState(null);
+	                popState(null);
+	                reportError("msg.bad.catchcond");
+				}
                 Name varName = createNameNode();
                 String varNameString = varName.getIdentifier();
                 if (inUseStrictDirective) {
@@ -1680,8 +1685,11 @@ public class Parser
                     sawDefaultCatch = true;
                 }
 
-                if (mustMatchToken(Token.RP, "msg.bad.catchcond", false))
-                    rp = ts.tokenBeg;
+                if (!matchToken(Token.RP, false)) {
+	                popState(null);
+	                popState(null);
+	                reportError("msg.bad.catchcond");
+				} else rp = ts.tokenBeg;
                 pushState();
                 Block catchBlock = null;
                 try {
@@ -3144,6 +3152,7 @@ public class Parser
 
               // handles name::[expr] or *::[expr]
               case Token.LB:
+                  popStateAhead();  //Because previously consumed tokens are actually Lookahead one
                   return xmlElemRef(atPos, ns, colonPos);
 
               default:
@@ -3353,8 +3362,8 @@ public class Parser
             int begin = ts.tokenBeg;
             AstNode e = expr();
             if (peekToken() == Token.FOR) {
+                popStateAhead();
                 AstNode n = generatorExpression(e, begin);
-                popState(n);
                 return n;
             }
             ParenthesizedExpression pn = new ParenthesizedExpression(e);
