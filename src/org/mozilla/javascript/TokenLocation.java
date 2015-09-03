@@ -3,7 +3,7 @@ package org.mozilla.javascript;
 /**
  * The lexer token location info
  */
-private class TokenLocation {
+public class TokenLocation {
 	int type;
 	int lineno;
 	int column;

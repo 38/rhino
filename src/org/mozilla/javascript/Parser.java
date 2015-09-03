@@ -60,7 +60,7 @@ public class Parser
         for(int i = begin; i < lookAheadBuffer.size(); i ++) {
             tokenStack.push(lookAheadBuffer.get(i));
         }
-        lookAheadBuffer.removeRange(begin, lookAheadBuffer.size() - 1);
+        if(lookAheadBuffer.size() - begin > 0) lookAheadBuffer.subList(begin, lookAheadBuffer.size()).clear();
 	}
 
     private void pushState() {
@@ -417,7 +417,7 @@ public class Parser
         return currentFlaggedToken;
     }
 
-    private void consumeToken(bool lookAhead) {
+    private void consumeToken(boolean lookAhead) {
         if(lookAhead) {
             /* Some token consumption actually happens when 
              * the parser does not know what to do, and keep
@@ -434,7 +434,7 @@ public class Parser
         currentFlaggedToken = Token.EOF;
     }
 
-    private int nextToken(bool lookAhead)
+    private int nextToken(boolean lookAhead)
         throws IOException
     {
         int tt = peekToken();
@@ -442,7 +442,7 @@ public class Parser
         return tt;
     }
 
-    private int nextFlaggedToken(bool lookAhead)
+    private int nextFlaggedToken(boolean lookAhead)
         throws IOException
     {
         peekToken();
@@ -451,7 +451,7 @@ public class Parser
         return ttFlagged;
     }
 
-    private boolean matchToken(int toMatch, bool lookAhead)
+    private boolean matchToken(int toMatch, boolean lookAhead)
         throws IOException
     {
         if (peekToken() != toMatch) {
@@ -477,14 +477,14 @@ public class Parser
         return tt;
     }
 
-    private boolean mustMatchToken(int toMatch, String messageId, bool lookAhead)
+    private boolean mustMatchToken(int toMatch, String messageId, boolean lookAhead)
         throws IOException
     {
         return mustMatchToken(toMatch, messageId, ts.tokenBeg,
-                              ts.tokenEnd - ts.tokenBeg);
+                              ts.tokenEnd - ts.tokenBeg, lookAhead);
     }
 
-    private boolean mustMatchToken(int toMatch, String msgId, int pos, int len, bool lookAhead)
+    private boolean mustMatchToken(int toMatch, String msgId, int pos, int len, boolean lookAhead)
         throws IOException
     {
         if (matchToken(toMatch, lookAhead)) {
@@ -978,7 +978,7 @@ public class Parser
             if (params instanceof ParenthesizedExpression) {
                 fnNode.setParens(0, params.getLength());
                 /* Previous token params is dead here, preserve the lexer token info */
-                for(TokenLocation token : p.getTokenList()) {
+                for(TokenLocation token : params.getTokenList()) {
                     tokenStack.push(token);
                 }
                 AstNode p = ((ParenthesizedExpression)params).getExpression();
@@ -1198,12 +1198,10 @@ public class Parser
 
           case Token.CONST:
           case Token.VAR:
-              pushState();
-              consumeToken(false);
+              consumeToken(true);
               int lineno = ts.lineno;
               pn = variables(currentToken, ts.tokenBeg, true);
               pn.setLineno(lineno);
-              popState(pn);
               break;
 
           case Token.LET:
@@ -1311,7 +1309,7 @@ public class Parser
         int pos = ts.tokenBeg, lineno = ts.lineno, elsePos = -1;
         ConditionData data = condition();
         AstNode ifTrue = statement(), ifFalse = null;
-        if (matchToken(Token.ELSE)) {
+        if (matchToken(Token.ELSE, false)) {
             elsePos = ts.tokenBeg - pos;
             ifFalse = statement();
         }
@@ -1357,7 +1355,7 @@ public class Parser
                 int caseLineno = ts.lineno;
                 AstNode caseExpression = null;
                 pushState();   // push for the Switch Case 
-                tt = peekToken(false);
+                tt = peekToken();
                 switch (tt) {
                     case Token.RC:
                         //Not a really case
@@ -1669,7 +1667,7 @@ public class Parser
                 if (mustMatchToken(Token.RP, "msg.bad.catchcond", false))
                     rp = ts.tokenBeg;
                 pushState();
-                Block catchblock = null;
+                Block catchBlock = null;
                 try {
                     mustMatchToken(Token.LC, "msg.no.brace.catchblock", true);
                     catchBlock = (Block)statements();
@@ -1687,7 +1685,7 @@ public class Parser
                 catchNode.setParens(lp, rp);
                 catchNode.setLineno(catchLineNum);
 
-                if (mustMatchToken(Token.RC, "msg.no.brace.after.body"))
+                if (mustMatchToken(Token.RC, "msg.no.brace.after.body", false))
                     tryEnd = ts.tokenEnd;
                 catchNode.setLength(tryEnd - catchPos);
                 if (clauses == null)
@@ -1984,7 +1982,8 @@ public class Parser
             return block;
         } catch(ParserException e) {
             popState(null);
-        }finally {
+            throw e;
+        } finally {
             popScope();
         }
     }
@@ -2154,10 +2153,8 @@ public class Parser
                 markDestructuring(destructuring);
             } else {
                 // Simple variable name
-                pushState();
-                mustMatchToken(Token.NAME, "msg.bad.var", false);
+                mustMatchToken(Token.NAME, "msg.bad.var", true);
                 name = createNameNode();
-                popState(name);
                 name.setLineno(ts.getLineno());
                 if (inUseStrictDirective) {
                     String id = ts.getString();
@@ -2174,7 +2171,7 @@ public class Parser
             Comment jsdocNode = getAndResetJsDoc();
 
             AstNode init = null;
-            if (matchToken(Token.ASSIGN, true)) {
+            if (matchToken(Token.ASSIGN, false)) {
                 init = assignExpr();
                 end = getNodeEnd(init);
             }
@@ -2229,7 +2226,7 @@ public class Parser
                 int beg = ts.tokenBeg;  // position stmt at LC
                 AstNode stmt = statements();
                 mustMatchToken(Token.RC, "msg.no.curly.let", false);
-                popState();
+                popState(stmt);
                 stmt.setLength(ts.tokenEnd - beg);
                 pn.setLength(ts.tokenEnd - pos);
                 pn.setBody(stmt);
@@ -2333,7 +2330,10 @@ public class Parser
         int pos = pn.getPosition();
         for(;;) {
             pushState();
-            if(!matchToken(Token.COMMA, false)) break;
+            if(!matchToken(Token.COMMA, false)) {
+	            popState(pn);
+	            break;
+			}
             int opPos = ts.tokenBeg;
             if (compilerEnv.isStrictMode() && !pn.hasSideEffects())
                 addStrictWarning("msg.no.side.effects", "",
@@ -2402,8 +2402,9 @@ public class Parser
             AstNode ifTrue;
             try {
                 ifTrue = assignExpr();
-            } catch (Exception e) {
+            } catch (ParserException e) {
                 popState(null);
+                throw e;
             }finally {
                 inForInit = wasInForInit;
             }
@@ -2456,7 +2457,10 @@ public class Parser
         AstNode pn = bitXorExpr();
         for(;;) {
             pushState();
-            if(!matchToken(Token.BITOR, false)) break;
+            if(!matchToken(Token.BITOR, false)) {
+	            popState(pn);
+	            break;
+			}
             int opPos = ts.tokenBeg;
             pn = new InfixExpression(Token.BITOR, pn, bitXorExpr(), opPos);
             popState(pn);
@@ -2470,7 +2474,10 @@ public class Parser
         AstNode pn = bitAndExpr();
         for(;;) {
             pushState();
-            if(!matchToken(Token.BITXOR, false)) break;
+            if(!matchToken(Token.BITXOR, false)) {
+	            popState(pn);
+	            break;
+			}
             int opPos = ts.tokenBeg;
             pn = new InfixExpression(Token.BITXOR, pn, bitAndExpr(), opPos);
             popState(pn);
@@ -2484,7 +2491,10 @@ public class Parser
         AstNode pn = eqExpr();
         for(;;) {
             pushState();
-            if(!matchToken(Token.BITAND, false)) break;
+            if(!matchToken(Token.BITAND, false)) {
+	            popState(pn);
+	            break;
+			}
             int opPos = ts.tokenBeg;
             pn = new InfixExpression(Token.BITAND, pn, eqExpr(), opPos);
             popState(pn);
@@ -2718,12 +2728,12 @@ public class Parser
             switch (tt) {
               case Token.XML:
                   pn.addFragment(new XmlString(ts.tokenBeg, ts.getString()));
-                  mustMatchToken(Token.LC, "msg.syntax");
+                  mustMatchToken(Token.LC, "msg.syntax", false);
                   int beg = ts.tokenBeg;
                   AstNode expr = (peekToken() == Token.RC)
                                  ? new EmptyExpression(beg, ts.tokenEnd - beg)
                                  : expr();
-                  mustMatchToken(Token.RC, "msg.syntax");
+                  mustMatchToken(Token.RC, "msg.syntax", false);
                   XmlExpression xexpr = new XmlExpression(beg, expr);
                   xexpr.setIsXmlAttribute(ts.isXMLAttribute());
                   xexpr.setLength(ts.tokenEnd - beg);
@@ -2822,7 +2832,7 @@ public class Parser
             // expression, which will mean a kind of anonymous class built with
             // the JavaAdapter.  the object literal will be passed as an
             // additional argument to the constructor.
-            if (matchToken(Token.LC)) {
+            if (matchToken(Token.LC, true)) {  /* TODO: verify this is true */
                 ObjectLiteral initializer = objectLiteral();
                 end = getNodeEnd(initializer);
                 nx.setInitializer(initializer);
@@ -3295,7 +3305,7 @@ public class Parser
 
           default:
               consumeToken(false);
-              popState(false);
+              popState(null);
               reportError("msg.syntax");
               break;
         }
@@ -3345,14 +3355,14 @@ public class Parser
             return pn;
         } catch(ParserException e) {
             popState(null);
-            throws e;
+            throw e;
         } finally {
             inForInit = wasInForInit;
         }
     }
 
     private AstNode name(int ttFlagged, int tt) throws IOException {
-        pushState();
+        pushState(1);
         String nameString = ts.getString();
         int namePos = ts.tokenBeg, nameLineno = ts.lineno;
         if (0 != (ttFlagged & TI_CHECK_LABEL) && peekToken() == Token.COLON) {
@@ -3481,7 +3491,7 @@ public class Parser
         throws IOException
     {
         pushState();
-        if (nextToken() != Token.FOR) codeBug();
+        if (nextToken(false) != Token.FOR) codeBug();
         int pos = ts.tokenBeg;
         int eachPos = -1, lp = -1, rp = -1, inPos = -1;
         boolean isForIn = false, isForOf = false;
@@ -3581,7 +3591,7 @@ public class Parser
         int ifPos = -1;
         ConditionData data = null;
         if (peekToken() == Token.IF) {
-            consumeToken();
+            consumeToken(false);
             ifPos = ts.tokenBeg - pos;
             data = condition();
         }
@@ -3795,7 +3805,7 @@ public class Parser
             }
         }
 
-        mustMatchToken(Token.RC, "msg.no.brace.prop");
+        mustMatchToken(Token.RC, "msg.no.brace.prop", false);
         ObjectLiteral pn = new ObjectLiteral(pos, ts.tokenEnd - pos);
         if (objJsdocNode != null) {
             pn.setJsDocNode(objJsdocNode);
