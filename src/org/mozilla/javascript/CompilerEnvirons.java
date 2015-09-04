@@ -26,6 +26,7 @@ public class CompilerEnvirons
         warningAsError = false;
         generateObserverCount = false;
         allowSharpComments = false;
+        codeGeneratorMode = true;
     }
 
     public void initFromContext(Context cx)
@@ -236,6 +237,18 @@ public class CompilerEnvirons
         return ideMode;
     }
 
+	/**
+	 * Put the parser in "Code Generator" Mode. This enable lexer token location recording
+	 * So that the code generator is able to map lexer token from source code to target code
+	 */
+	public void setCodeGeneratorMode(boolean cg) {
+		codeGeneratorMode = cg;
+	}
+
+	public boolean isCodeGeneratorMode() {
+		return codeGeneratorMode;
+	}
+
     public Set<String> getActivationNames() {
         return activationNames;
     }
@@ -290,6 +303,7 @@ public class CompilerEnvirons
     private boolean recoverFromErrors;
     private boolean warnTrailingComma;
     private boolean ideMode;
+    private boolean codeGeneratorMode;
     private boolean allowSharpComments;
     Set<String> activationNames;
 }

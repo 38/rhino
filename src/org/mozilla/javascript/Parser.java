@@ -56,11 +56,13 @@ public class Parser
 
 	private void pushState(int begin) 
 	{
-		parserStack.push(new Integer(tokenStack.size()));
-        for(int i = begin; i < lookAheadBuffer.size(); i ++) {
-            tokenStack.push(lookAheadBuffer.get(i));
-        }
-        if(lookAheadBuffer.size() - begin > 0) lookAheadBuffer.subList(begin, lookAheadBuffer.size()).clear();
+		if(compilerEnv.isCodeGeneratorMode()) {
+			parserStack.push(new Integer(tokenStack.size()));
+			for(int i = begin; i < lookAheadBuffer.size(); i ++) {
+				tokenStack.push(lookAheadBuffer.get(i));
+			}
+			if(lookAheadBuffer.size() - begin > 0) lookAheadBuffer.subList(begin, lookAheadBuffer.size()).clear();
+		}
 	}
 
     private void pushState() {
@@ -69,36 +71,40 @@ public class Parser
 	
 	private void popState(AstNode node)
 	{
-		int lastBeg = parserStack.pop().intValue();
-		int lastEnd = tokenStack.size();
-        
-        //When a subtree is constructed, the lookup buffer should already been flushed
-        if(lookAheadBuffer.size() > 0) {
-            if(null != node) codeBug();
-            else lookAheadBuffer.clear(); 
-        }
-		
-		if(node != null) {
-			List<TokenLocation> ret = new LinkedList<TokenLocation>();
+		if(compilerEnv.isCodeGeneratorMode()) {
+			int lastBeg = parserStack.pop().intValue();
+			int lastEnd = tokenStack.size();
+			
+			//When a subtree is constructed, the lookup buffer should already been flushed
+			if(lookAheadBuffer.size() > 0) {
+				if(null != node) codeBug();
+				else lookAheadBuffer.clear(); 
+			}
+			
+			if(node != null) {
+				List<TokenLocation> ret = new LinkedList<TokenLocation>();
+				for(int i = lastBeg; i < lastEnd; i ++)
+					ret.add(tokenStack.get(i));
+				if(node.getTokenList() == null) node.setTokenList(ret);
+				else if(ret.size() > 0) codeBug();
+			}
 			for(int i = lastBeg; i < lastEnd; i ++)
-				ret.add(0, tokenStack.get(i));
-			if(node.getTokenList() == null) node.setTokenList(ret);
-            else if(ret.size() > 0) codeBug();
+				tokenStack.pop();
 		}
-		for(int i = lastBeg; i < lastEnd; i ++)
-			tokenStack.pop();
 	}
 
 	// This function add all the token in the token stack frame to look ahead buffer, useful when the temp node is going to be disposed
 	private void popStateAhead() {
-		int lastBeg = parserStack.pop().intValue();
-		int lastEnd = tokenStack.size();
+		if(compilerEnv.isCodeGeneratorMode()) {
+			int lastBeg = parserStack.pop().intValue();
+			int lastEnd = tokenStack.size();
 
-		for(int i = lastBeg; i < lastEnd; i ++)
-			lookAheadBuffer.add(tokenStack.get(i));
+			for(int i = lastBeg; i < lastEnd; i ++)
+				lookAheadBuffer.add(tokenStack.get(i));
 
-		for(int i = lastBeg; i < lastEnd; i ++)
-			tokenStack.pop();
+			for(int i = lastBeg; i < lastEnd; i ++)
+				tokenStack.pop();
+		}
 	}
 
     /**
@@ -174,9 +180,12 @@ public class Parser
         if (errorReporter instanceof IdeErrorReporter) {
             errorCollector = (IdeErrorReporter)errorReporter;
         }
-        this.tokenStack = new Stack<TokenLocation>();
-        this.parserStack = new Stack<Integer>();
-        this.lookAheadBuffer = new ArrayList<TokenLocation>();
+        /* Only for code generator mode we need enable this */
+        if(compilerEnv.isCodeGeneratorMode()) {
+			this.tokenStack = new Stack<TokenLocation>();
+			this.parserStack = new Stack<Integer>();
+			this.lookAheadBuffer = new ArrayList<TokenLocation>();
+		}
     }
 
     // Add a strict warning on the last matched token.
@@ -393,7 +402,9 @@ public class Parser
         int column = ts.getTokenColumn();
         int tt = ts.getToken();
 
-		lastLocation = new TokenLocation(tt, lineno, column);
+        if(compilerEnv.isCodeGeneratorMode()) {
+			lastLocation = new TokenLocation(tt, lineno, column, sourceURI);
+		}
 			
         boolean sawEOL = false;
 
@@ -427,19 +438,21 @@ public class Parser
     }
 
     private void consumeToken(boolean lookAhead) {
-        if(lookAhead) {
-            /* Some token consumption actually happens when 
-             * the parser does not know what to do, and keep
-             * this token in the program stack. Actually this 
-             * is look-ahead method, we should distinguish the 
-             * difference between consumption and look-ahead
-             * in order to group the lexer tokens 
-             */
-            if(lastLocation != null) lookAheadBuffer.add(lastLocation);
-        } else {
-            if(lastLocation != null) tokenStack.push(lastLocation);
-        }
-	    lastLocation = null;
+	    if(compilerEnv.isCodeGeneratorMode()) {
+			if(lookAhead) {
+				/* Some token consumption actually happens when 
+				 * the parser does not know what to do, and keep
+				 * this token in the program stack. Actually this 
+				 * is look-ahead method, we should distinguish the 
+				 * difference between consumption and look-ahead
+				 * in order to group the lexer tokens 
+				 */
+				if(lastLocation != null) lookAheadBuffer.add(lastLocation);
+			} else {
+				if(lastLocation != null) tokenStack.push(lastLocation);
+			}
+			lastLocation = null;
+		}
         currentFlaggedToken = Token.EOF;
     }
 
@@ -989,9 +1002,11 @@ public class Parser
             if (params instanceof ParenthesizedExpression) {
                 fnNode.setParens(0, params.getLength());
                 /* Previous token params is dead here, preserve the lexer token info */
-                for(TokenLocation token : params.getTokenList()) {
-                    tokenStack.push(token);
-                }
+                if(params.getTokenList() != null && tokenStack != null) {
+					for(TokenLocation token : params.getTokenList()) {
+						tokenStack.push(token);
+					}
+				}
                 AstNode p = ((ParenthesizedExpression)params).getExpression();
                 if (!(p instanceof EmptyExpression)) {
                     arrowFunctionParams(fnNode, p, destructuring, paramNames);
@@ -1290,7 +1305,8 @@ public class Parser
               location = lastLocation;
               consumeToken(false);
               popState(null);
-              pn.getTokenList().add(location);  /* The semicolon is a part of the statement */
+			  /* The semicolon is a part of the statement */
+              if(pn.getTokenList() != null) pn.getTokenList().add(location);  
               // extend the node bounds to include the semicolon.
               pn.setLength(ts.tokenEnd - pos);
               break;
@@ -1837,7 +1853,9 @@ public class Parser
         int lineno = ts.lineno, pos = ts.tokenBeg, end = ts.tokenEnd;
         Name label = null;
         if (peekTokenOrEOL() == Token.NAME) {
-            lookAheadBuffer.add(lastLocation);  /* Because we need this back up with the label */
+	        if(lookAheadBuffer != null) {
+		        lookAheadBuffer.add(lastLocation);  /* Because we need this back up with the label */
+			}
             label = createNameNode();
             end = getNodeEnd(label);
         }
@@ -3771,9 +3789,11 @@ public class Parser
                             /* The previous pname, a.k.a "set" / "get" is about to deallocated. preserve the 
                              * token information in parent 
                              */
-                            for(TokenLocation token : pname.getTokenList()) {
-                                tokenStack.push(token);
-                            }
+	                        if(pname.getTokenList() != null && tokenStack != null) {
+								for(TokenLocation token : pname.getTokenList()) {
+									tokenStack.push(token);
+								}
+							}
                             pname = objliteralProperty();
                             if (pname == null) {
                                 popState(null);
