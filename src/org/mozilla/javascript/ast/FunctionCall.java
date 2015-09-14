@@ -68,6 +68,15 @@ public class FunctionCall extends AstNode {
         return arguments != null ? arguments : NO_ARGS;
     }
 
+	/**
+	 * Returns function argument list, if there's no argument list object, return null
+	 * @return function argument list, or empty list for zero length argument list (a.k.a '()') 
+	 *         or a null pointer for no arguments
+	 */
+	public List<AstNode> peekArguments() {
+		return arguments; 
+	}
+
     /**
      * Sets function argument list
      * @param arguments function argument list.  Can be {@code null},

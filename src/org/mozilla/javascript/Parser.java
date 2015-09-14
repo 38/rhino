@@ -398,9 +398,9 @@ public class Parser
             return currentToken;
         }
 
+        int tt = ts.getToken();
         int lineno = ts.getLineno();
         int column = ts.getTokenColumn();
-        int tt = ts.getToken();
 
         if(compilerEnv.isCodeGeneratorMode()) {
 			lastLocation = new TokenLocation(tt, lineno, column, sourceURI);
@@ -423,6 +423,13 @@ public class Parser
                 }
             }
             tt = ts.getToken();
+
+            lineno = ts.getLineno();
+			column = ts.getTokenColumn();
+
+			if(compilerEnv.isCodeGeneratorMode()) {
+				lastLocation = new TokenLocation(tt, lineno, column, sourceURI);
+			}
         }
 
         currentToken = tt;
@@ -1708,30 +1715,32 @@ public class Parser
 				} else rp = ts.tokenBeg;
                 pushState();
                 Block catchBlock = null;
+				CatchClause catchNode = null;
                 try {
                     mustMatchToken(Token.LC, "msg.no.brace.catchblock", false);
                     catchBlock = (Block)statements();
-                } finally {
-                    popState(catchBlock);
-                }
-                tryEnd = getNodeEnd(catchBlock);
-                CatchClause catchNode = new CatchClause(catchPos);
-                catchNode.setVarName(varName);
-                catchNode.setCatchCondition(catchCond);
-                catchNode.setBody(catchBlock);
-                if (guardPos != -1) {
-                    catchNode.setIfPosition(guardPos - catchPos);
-                }
-                catchNode.setParens(lp, rp);
-                catchNode.setLineno(catchLineNum);
+					
+                    tryEnd = getNodeEnd(catchBlock);
+					catchNode = new CatchClause(catchPos);
+					catchNode.setVarName(varName);
+					catchNode.setCatchCondition(catchCond);
+					catchNode.setBody(catchBlock);
+					if (guardPos != -1) {
+						catchNode.setIfPosition(guardPos - catchPos);
+					}
+					catchNode.setParens(lp, rp);
+					catchNode.setLineno(catchLineNum);
 
-                if (mustMatchToken(Token.RC, "msg.no.brace.after.body", false))
-                    tryEnd = ts.tokenEnd;
-                catchNode.setLength(tryEnd - catchPos);
-                if (clauses == null)
-                    clauses = new ArrayList<CatchClause>();
-                popState(catchNode);
-                clauses.add(catchNode);
+					if (mustMatchToken(Token.RC, "msg.no.brace.after.body", false))
+						tryEnd = ts.tokenEnd;
+					catchNode.setLength(tryEnd - catchPos);
+					if (clauses == null)
+						clauses = new ArrayList<CatchClause>();
+					clauses.add(catchNode);
+                } finally {
+	                popState(catchBlock);
+					popState(catchNode);
+                }
             }
         } else if (peek != Token.FINALLY) {
             mustMatchToken(Token.FINALLY, "msg.try.no.catchfinally", false);
@@ -2186,6 +2195,7 @@ public class Parser
             int tt = peekToken(), kidPos = ts.tokenBeg;
             end = ts.tokenEnd;
 
+            pushState();
             if (tt == Token.LB || tt == Token.LC) {
                 // Destructuring assignment, e.g., var [a,b] = ...
                 destructuring = destructuringPrimaryExpr();
@@ -2218,7 +2228,6 @@ public class Parser
                 end = getNodeEnd(init);
             }
 
-            pushState();
             VariableInitializer vi = new VariableInitializer(kidPos, end - kidPos);
             if (destructuring != null) {
                 if (init == null && !inForInit) {
